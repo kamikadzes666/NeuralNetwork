@@ -38,9 +38,21 @@ for file in os.listdir(base_dir + '/images'):
 
 			confidence = detections[0, 0, i, 2]
 
-			# If confidence > 0.5, show box around face
-			if (confidence > 0.5):
+			# If confidence > 0.4, show box around face
+			if (confidence > 0.4):
 				cv2.rectangle(image, (startX, startY), (endX, endY), (255, 255, 255), 2)
 
 		cv2.imwrite(base_dir + '/updated_images/' + file, image)
 		print("Image " + file + " converted successfully")
+
+		# Identify each face
+		for i in range(0, detections.shape[2]):
+			box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+			(startX, startY, endX, endY) = box.astype("int")
+
+			confidence = detections[0, 0, i, 2]
+
+			# If confidence > 0.4, save it as a separate file
+			if (confidence > 0.4):
+				frame = image[startY:endY, startX:endX]
+				cv2.imwrite(base_dir + '/faces/' + str(i) + '_' + file, frame)
