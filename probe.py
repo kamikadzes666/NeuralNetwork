@@ -1,58 +1,141 @@
 import os
 import cv2
+import dlib
 import numpy as np
 # from pyagender.pyagender.pyagender import PyAgender
 
-base_dir = os.path.dirname(__file__)
-prototxt_path = os.path.join(base_dir + '/model_data/deploy.prototxt')
-caffemodel_path = os.path.join(base_dir + '/model_data/weights.caffemodel')
-
-model = cv2.dnn.readNetFromCaffe(prototxt_path, caffemodel_path)
 
 
-if not os.path.exists('updated_images'):
-	print("New directory created")
-	os.makedirs('updated_images')
+def load_model(model_path, caffemodel, prototxt):
+    # caffemodel_path = os.path.join(model_path, caffemodel)
+    # prototxt_path = os.path.join(model_path, prototxt)
+    caffemodel_path = model_path + caffemodel
+    prototxt_path = model_path + prototxt
+    model = cv2.dnn.readNet(prototxt_path, caffemodel_path)
+    return model
 
-if not os.path.exists('faces'):
-	print("New directory created")
-	os.makedirs('faces')
+def predict(model, img, height, width):
+    face_blob = cv2.dnn.blobFromImage(img, 1.0, (height, width), (0.485, 0.456, 0.406))
+    model.setInput(face_blob)
+    predictions = model.forward()
+    class_num = predictions[0].argmax()
+    confidence = predictions[0][class_num]
 
-for file in os.listdir(base_dir + '/images'):
-	file_name, file_extension = os.path.splitext(file)
-	if (file_extension in ['.png','.jpg']):
-		print("Image path: {}".format(base_dir + 'images/' + file))
+    return class_num, confidence
 
-		image = cv2.imread(base_dir + '/images/' + file)
 
-		(h, w) = image.shape[:2]
-		blob = cv2.dnn.blobFromImage(cv2.resize(image, (300, 300)), 1.0, (300, 300), (104.0, 177.0, 123.0))
-		#
-		model.setInput(blob)
-		detections = model.forward()
+input_height = 224
+input_width = 224
 
-		# Create frame around face
-		for i in range(0, detections.shape[2]):
-			box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
-			(startX, startY, endX, endY) = box.astype("int")
+# load gender model
+gender_model_path = 'model_data/gender'
+gender_caffemodel = '/gender2.caffemodel'
+gender_prototxt = '/gender2.prototxt'
+gender_model = load_model(gender_model_path, gender_caffemodel, gender_prototxt)
 
-			confidence = detections[0, 0, i, 2]
+# load age model
+age_model_path = 'model_data/age'
+age_caffemodel = '/dex_chalearn_iccv2015.caffemodel'
+age_prototxt = '/age2.prototxt'
+age_model = load_model(age_model_path, age_caffemodel, age_prototxt)
 
-			# If confidence > 0.4, show box around face
-			if (confidence > 0.4):
-				cv2.rectangle(image, (startX, startY), (endX, endY), (255, 255, 255), 2)
+detector = dlib.get_frontal_face_detector()
+font, fontScale, fontColor, lineType = cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2
 
-		cv2.imwrite(base_dir + '/updated_images/' + file, image)
-		print("Image " + file + " converted successfully")
 
-		# Identify each face
-		for i in range(0, detections.shape[2]):
-			box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
-			(startX, startY, endX, endY) = box.astype("int")
+######################
+#	Работа с видео  #
+#####################
 
-			confidence = detections[0, 0, i, 2]
+face_cascade_db = cv2.CascadeClassifier(cv2.data.haarcascades +'haarcascade_frontalface_default.xml')
+cap = cv2.VideoCapture(0)
 
-			# If confidence > 0.4, save it as a separate file
-			if (confidence > 0.4):
-				frame = image[startY:endY, startX:endX]
-				cv2.imwrite(base_dir + '/faces/' + str(i) + '_' + file, frame)
+
+while True:
+    success, img = cap.read()
+
+    img_RGB = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
+    faces = detector(img_RGB, 1)
+    for d in faces:
+        left = int(0.6 * d.left())     # + 40% margin
+        top = int(0.6 * d.top())       # + 40% margin
+        right = int(1.4 * d.right())   # + 40% margin
+        bottom = int(1.4 * d.bottom()) # + 40% margin
+        face_segm = img_RGB[top:bottom, left:right]
+        gender, gender_confidence = predict(gender_model, face_segm, input_height, input_width)
+        age, age_confidence = predict(age_model, face_segm, input_height, input_width)
+        gender = 'man' if gender == 1 else 'woman'
+        text = '{} ({:.2f}%) {} ({:.2f}%)'.format(gender, gender_confidence*100, age-5, age_confidence*100)
+        cv2.putText(img, text, (d.left(), d.top() - 20), font, fontScale, fontColor, lineType)
+        cv2.rectangle(img, (d.left(), d.top()), (d.right(), d.bottom()), fontColor, 2)
+
+    # faces = face_cascade_db.detectMultiScale(img_gray,1.1,19)
+    # for (x,y,w,h) in faces:
+    # 	cv2.rectangle(img,(x,y),(x+w,y+h),(255,255,255),2)
+    #
+    cv2.imshow('rez',img)
+    if cv2.waitKey(1) & 0xff ==ord ('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+#
+##############################
+#	Работа с изображениями   #
+##############################
+#
+# base_dir = os.path.dirname(__file__)
+# prototxt_path = os.path.join(base_dir + '/model_data/deploy.prototxt')
+# caffemodel_path = os.path.join(base_dir + '/model_data/weights.caffemodel')
+#
+# model = cv2.dnn.readNetFromCaffe(prototxt_path, caffemodel_path)
+
+# if not os.path.exists('updated_images'):
+# 	print("New directory created")
+# 	os.makedirs('updated_images')
+#
+# if not os.path.exists('faces'):
+# 	print("New directory created")
+# 	os.makedirs('faces')
+
+
+# for file in os.listdir(base_dir + '/images'):
+# 	file_name, file_extension = os.path.splitext(file)
+# 	if (file_extension in ['.png','.jpg']):
+# 		print("Image path: {}".format(base_dir + 'images/' + file))
+#
+# 		image = cv2.imread(base_dir + '/images/' + file)
+#
+# 		cap = cv2.VideoCapture(0)
+#
+# 		(h, w) = image.shape[:2]
+# 		blob = cv2.dnn.blobFromImage(cv2.resize(image, (300, 300)), 1.0, (300, 300), (104.0, 177.0, 123.0))
+# 		#
+# 		model.setInput(blob)
+# 		detections = model.forward()
+#
+# 		# Create frame around face
+# 		for i in range(0, detections.shape[2]):
+# 			box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+# 			(startX, startY, endX, endY) = box.astype("int")
+#
+# 			confidence = detections[0, 0, i, 2]
+#
+# 			# If confidence > 0.4, show box around face
+# 			if (confidence > 0.4):
+# 				cv2.rectangle(image, (startX, startY), (endX, endY), (255, 255, 255), 2)
+#
+# 		cv2.imwrite(base_dir + '/updated_images/' + file, image)
+# 		print("Image " + file + " converted successfully")
+#
+# 		# Identify each face
+# 		for i in range(0, detections.shape[2]):
+# 			box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+# 			(startX, startY, endX, endY) = box.astype("int")
+#
+# 			confidence = detections[0, 0, i, 2]
+#
+# 			# If confidence > 0.4, save it as a separate file
+# 			if (confidence > 0.4):
+# 				frame = image[startY:endY, startX:endX]
+# 				cv2.imwrite(base_dir + '/faces/' + str(i) + '_' + file, frame)
