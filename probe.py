@@ -2,11 +2,17 @@ import os
 import cv2
 import dlib
 import numpy as np
+
+from keras.models import load_model
+from time import sleep
+from keras.preprocessing.image import img_to_array
+from keras.preprocessing import image
+from deepface import DeepFace
 # from pyagender.pyagender.pyagender import PyAgender
 
 
 
-def load_model(model_path, caffemodel, prototxt):
+def load_models(model_path, caffemodel, prototxt):
     # caffemodel_path = os.path.join(model_path, caffemodel)
     # prototxt_path = os.path.join(model_path, prototxt)
     caffemodel_path = model_path + caffemodel
@@ -31,13 +37,22 @@ input_width = 224
 gender_model_path = 'model_data/gender'
 gender_caffemodel = '/gender2.caffemodel'
 gender_prototxt = '/gender2.prototxt'
-gender_model = load_model(gender_model_path, gender_caffemodel, gender_prototxt)
+gender_model = load_models(gender_model_path, gender_caffemodel, gender_prototxt)
 
 # load age model
 age_model_path = 'model_data/age'
 age_caffemodel = '/dex_chalearn_iccv2015.caffemodel'
 age_prototxt = '/age2.prototxt'
-age_model = load_model(age_model_path, age_caffemodel, age_prototxt)
+age_model = load_models(age_model_path, age_caffemodel, age_prototxt)
+
+
+#Load emotions model
+# emo_classifire = cv2.CascadeClassifier('/model_data/haarcascade_frontalface_default.xml')
+emo_classifier = load_model('model_data/Emotion_Detection.h5')
+
+class_labels = ['Angry','Happy','Neutral','Sad','Surprise']
+
+
 
 detector = dlib.get_frontal_face_detector()
 font, fontScale, fontColor, lineType = cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2
@@ -47,16 +62,41 @@ font, fontScale, fontColor, lineType = cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0),
 #	Работа с видео  #
 #####################
 
-face_cascade_db = cv2.CascadeClassifier(cv2.data.haarcascades +'haarcascade_frontalface_default.xml')
+# face_cascade_db = cv2.CascadeClassifier(cv2.data.haarcascades +'haarcascade_frontalface_default.xml')
 cap = cv2.VideoCapture(0)
 
 
 while True:
     success, img = cap.read()
+    # img = cv2.imread('images/11.jpg')
+    # predictions = DeepFace.analyze(img,actions=['emotion'])
+    gray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
 
     img_RGB = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
     faces = detector(img_RGB, 1)
+
+
+
     for d in faces:
+        roi_gray = gray[d.top():d.bottom(), d.left():d.right()]
+        roi_gray = cv2.resize(roi_gray, (48, 48), interpolation=cv2.INTER_AREA)
+
+        if np.sum([roi_gray]) != 0:
+            roi = roi_gray.astype('float') / 255.0
+            roi = img_to_array(roi)
+            roi = np.expand_dims(roi, axis=0)
+
+            # make a prediction on the ROI, then lookup the class
+
+            preds = emo_classifier.predict(roi)[0]
+            print("\nprediction = ", preds)
+            label = class_labels[preds.argmax()]
+            print("\nprediction max = ", preds.argmax())
+            print("\nlabel = ", label)
+            label_position = (d.left(), d.bottom())
+            cv2.putText(img, label, label_position, cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
+
+
         left = int(0.6 * d.left())     # + 40% margin
         top = int(0.6 * d.top())       # + 40% margin
         right = int(1.4 * d.right())   # + 40% margin
@@ -74,9 +114,10 @@ while True:
     # 	cv2.rectangle(img,(x,y),(x+w,y+h),(255,255,255),2)
     #
     cv2.imshow('rez',img)
+    # cv2.waitKey()
     if cv2.waitKey(1) & 0xff ==ord ('q'):
         break
-
+#
 cap.release()
 cv2.destroyAllWindows()
 #
