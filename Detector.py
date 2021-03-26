@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 import dlib
 from pprint import pprint
+from pyimagesearch.centroidtracker import CentroidTracker
+from pyimagesearch.trackableobject import TrackableObject
 
 class Detector:
 
@@ -82,10 +84,15 @@ class Detector:
         self.cap = cv2.VideoCapture(self.cam_id)
         # out = cv2.VideoWriter('output.mp4', -1, 20.0, (960,540))
 
+        ct = CentroidTracker(maxDisappeared=4, maxDistance=70)
+        trackers = []
+        trackableObjects = {}
+
         while True:
             success, img = self.cap.read()
             img_RGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             faces = detector(img_RGB, 1)
+            rects = []
 
             for d in faces:
                 left = int(0.6 * d.left())  # + 40% margin
@@ -95,6 +102,14 @@ class Detector:
 
                 # Cutting face
                 face_segm = img_RGB[top:bottom, left:right]
+
+                tracker = dlib.correlation_tracker()
+                rect = dlib.rectangle(int(d.left()), int(d.top()), int(d.right()), int(d.bottom()))
+                rects.append((int(d.left()), int(d.top()), int(d.right()), int(d.bottom())))
+
+                tracker.start_track(face_segm, rect)
+                trackers.append(tracker)
+
 
                 # Get predictions
                 self.gender, self.gender_confidence = Detector.predict(self.gender_model, face_segm, Detector.input_height, Detector.input_width)
@@ -114,9 +129,45 @@ class Detector:
 
                 # out.write(img)
 
+            objects = ct.update(rects)
+
+            for (objectID, centroid) in objects.items():
+                # check to see if a trackable object exists for the current
+                # object ID
+                to = trackableObjects.get(objectID, None)
+
+                # if there is no existing trackable object, create one
+                if to is None:
+                    to = TrackableObject(objectID, centroid)
+
+                # otherwise, there is a trackable object so we can utilize it
+                # to determine direction
+                else:
+                    # the difference between the y-coordinate of the *current*
+                    # centroid and the mean of *previous* centroids will tell
+                    # us in which direction the object is moving (negative for
+                    # 'up' and positive for 'down')
+                    y = [c[1] for c in to.centroids]
+                    direction = centroid[1] - np.mean(y)
+                    to.centroids.append(centroid)
+                    to.counted = True
+
+                # store the trackable object in our dictionary
+                trackableObjects[objectID] = to
+
+                # draw both the ID of the object and the centroid of the
+                # object on the output frame
+                text = "ID {}".format(objectID)
+                cv2.putText(img, text, (centroid[0] - 10, centroid[1] - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                cv2.circle(img, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
+
             cv2.imshow('rez', img)
             if cv2.waitKey(1) & 0xff == ord('q'):
                 break
+
+
+
 
     def __del__(self):
         self.cap.release()
