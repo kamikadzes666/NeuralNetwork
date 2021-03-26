@@ -52,6 +52,28 @@ class Detector:
 
         return class_num, confidence
 
+    def predict(model, img, height, width):
+        face_blob = cv2.dnn.blobFromImage(img, 1.0, (height, width), (0.485, 0.456, 0.406))
+        model.setInput(face_blob)
+        predictions = model.forward()
+        class_num = predictions[0].argmax()
+        confidence = predictions[0][class_num]
+
+        return class_num, confidence
+
+    def get_data(self):
+        self.emo_confidence = list(self.emo_confidence)
+        emo_percent_list = []
+        for _ in range(7):
+            emo_percent = round(self.emo_confidence[_] * 100, 2)
+            emo_percent_list.append(emo_percent)
+        emo_dict = zip(self.categories, emo_percent_list)
+
+        print('===================================')
+        print('{} ({:.2f}%)'.format(self.gender, self.gender_confidence * 100))
+        print('{} ({:.2f}%)'.format(self.age - 5, self.age_confidence * 100))
+        pprint(list(emo_dict))
+        print('===================================')
 
     def cam_process(self):
         detector = dlib.get_frontal_face_detector()
@@ -75,33 +97,21 @@ class Detector:
                 face_segm = img_RGB[top:bottom, left:right]
 
                 # Get predictions
-                # gender, gender_confidence = predict(gender_model, face_segm, input_height, input_width)
-                # age, age_confidence = predict(age_model, face_segm, input_height, input_width)
-                emo, emo_confidence = Detector.predict_emo(self.emo_model, face_segm, Detector.input_height, Detector.input_width)
+                self.gender, self.gender_confidence = Detector.predict(self.gender_model, face_segm, Detector.input_height, Detector.input_width)
+                self.age, self.age_confidence = Detector.predict(self.age_model, face_segm, Detector.input_height, Detector.input_width)
+                self.emo, self.emo_confidence = Detector.predict_emo(self.emo_model, face_segm, Detector.input_height, Detector.input_width)
 
                 # Correcting predictions
-                # gender = 'man' if gender == 1 else 'woman'
+                self.gender = 'man' if self.gender == 1 else 'woman'
 
-                # emo=list(emo)
-                # print(emo)
-                # print(type(emo))
-                # emo_index = []
-                # for i in range(len(emo)):
-                # emo_index = emo.index[i]
-
-                # text = '{} ({:.2f}%) {} ({:.2f}%)'.format(gender, gender_confidence*100, age-5, age_confidence*100)
+                text = '{} ({:.2f}%) {} ({:.2f}%)'.format(self.gender, self.gender_confidence*100, self.age-5, self.age_confidence*100)
                 # text_emo = '{} ({:.2f}%)'.format(emo, emo_confidence*100)
-                # cv2.putText(img, text, (d.left(), d.top() - 20), font, fontScale, fontColor, lineType)
+                cv2.putText(img, text, (d.left(), d.top() - 20), font, fontScale, fontColor, lineType)
                 # cv2.putText(img, text_emo, (d.left(), d.bottom()+25), font, fontScale, fontColor, lineType)
-                # pprint(emo_index)
-                emo_confidence = list(emo_confidence)
-                emo_percent_list = []
-                for _ in range(7):
-                    emo_percent = round(emo_confidence[_] * 100, 2)
-                    emo_percent_list.append(emo_percent)
-                emo_dict = zip(self.categories, emo_percent_list)
-                pprint(list(emo_dict))
                 cv2.rectangle(img, (d.left(), d.top()), (d.right(), d.bottom()), fontColor, 2)
+
+                Detector.get_data(self)
+
                 # out.write(img)
 
             cv2.imshow('rez', img)
