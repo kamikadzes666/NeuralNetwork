@@ -4,40 +4,44 @@ import dlib
 from pprint import pprint
 from pyimagesearch.centroidtracker import CentroidTracker
 from pyimagesearch.trackableobject import TrackableObject
+from Person import Person
+
 
 class Detector:
-
     input_height = 224
     input_width = 224
 
-    def __init__(self, cam_id = 0):
-
+    def __init__(self, cam_id=0):
+        # init trackers data
+        self.ct = CentroidTracker(maxDisappeared=10, maxDistance=50)
+        self.trackers = []
+        self.trackableObjects = {}
+        self.persons = []
+        self.rects = []
+        # self.skip_frame_flag = True
 
         # load gender model
         gender_model_path = 'model_data/gender'
         gender_caffemodel = '/gender2.caffemodel'
         gender_prototxt = '/gender2.prototxt'
-        self.gender_model = Detector.load_models(gender_model_path, gender_caffemodel, gender_prototxt)
+        self.gender_model = Detector._load_models(gender_model_path, gender_caffemodel, gender_prototxt)
 
         # load age model
         age_model_path = 'model_data/age'
         age_caffemodel = '/dex_chalearn_iccv2015.caffemodel'
         age_prototxt = '/age2.prototxt'
-        self.age_model = Detector.load_models(age_model_path, age_caffemodel, age_prototxt)
+        self.age_model = Detector._load_models(age_model_path, age_caffemodel, age_prototxt)
 
         # Load emotions model
         emo_model_path = 'model_data/emotions'
         emo_caffemodel = '/EmotiW_VGG_S.caffemodel'
         emo_prototxt = '/deploy.prototxt'
-        self.emo_model = Detector.load_models(emo_model_path, emo_caffemodel, emo_prototxt)
+        self.emo_model = Detector._load_models(emo_model_path, emo_caffemodel, emo_prototxt)
 
         self.categories = ['Angry', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
         self.cam_id = cam_id
 
-
-
-
-    def load_models(model_path, caffemodel, prototxt):
+    def _load_models(model_path, caffemodel, prototxt):
         caffemodel_path = model_path + caffemodel
         prototxt_path = model_path + prototxt
         model = cv2.dnn.readNet(prototxt_path, caffemodel_path)
@@ -77,22 +81,44 @@ class Detector:
         pprint(list(emo_dict))
         print('===================================')
 
+    def tracker_add(self, face_segm, left, top, right, botom):
+        tracker = dlib.correlation_tracker()
+        rect = dlib.rectangle(left, top, right, botom)
+        self.rects.append((left, top, right, botom))
+
+        tracker.start_track(face_segm, rect)
+        self.trackers.append(tracker)
+
+    def track(self):
+        pass
+
+
+
     def cam_process(self):
         detector = dlib.get_frontal_face_detector()
-        font, fontScale, fontColor, lineType = cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2
+        font, fontScale, fontColor, lineType = cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2
 
         self.cap = cv2.VideoCapture(self.cam_id)
         # out = cv2.VideoWriter('output.mp4', -1, 20.0, (960,540))
 
-        ct = CentroidTracker(maxDisappeared=4, maxDistance=70)
-        trackers = []
-        trackableObjects = {}
+
 
         while True:
             success, img = self.cap.read()
             img_RGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             faces = detector(img_RGB, 1)
-            rects = []
+
+
+
+            self.rects.clear()
+
+            self.age_list = []
+            self.age_conf_list = []
+            self.gender_list = []
+            self.gender_conf_list = []
+            self.emo_list = []
+
+
 
             for d in faces:
                 left = int(0.6 * d.left())  # + 40% margin
@@ -103,42 +129,62 @@ class Detector:
                 # Cutting face
                 face_segm = img_RGB[top:bottom, left:right]
 
-                tracker = dlib.correlation_tracker()
-                rect = dlib.rectangle(int(d.left()), int(d.top()), int(d.right()), int(d.bottom()))
-                rects.append((int(d.left()), int(d.top()), int(d.right()), int(d.bottom())))
-
-                tracker.start_track(face_segm, rect)
-                trackers.append(tracker)
-
+                Detector.tracker_add(self,face_segm,int(d.left()), int(d.top()), int(d.right()), int(d.bottom()))
 
                 # Get predictions
-                self.gender, self.gender_confidence = Detector.predict(self.gender_model, face_segm, Detector.input_height, Detector.input_width)
-                self.age, self.age_confidence = Detector.predict(self.age_model, face_segm, Detector.input_height, Detector.input_width)
-                self.emo, self.emo_confidence = Detector.predict_emo(self.emo_model, face_segm, Detector.input_height, Detector.input_width)
+                gender, gender_confidence = Detector.predict(self.gender_model, face_segm,
+                                                                       Detector.input_height, Detector.input_width)
+                age, age_confidence = Detector.predict(self.age_model, face_segm, Detector.input_height,
+                                                                 Detector.input_width)
+                emo, emo_confidence = Detector.predict_emo(self.emo_model, face_segm, Detector.input_height,
+                                                                     Detector.input_width)
+
+                # print
 
                 # Correcting predictions
-                self.gender = 'man' if self.gender == 1 else 'woman'
+                gender = 'man' if gender == 1 else 'woman'
+                age -=5
+                emo_confidence = list(emo_confidence)
+                emo_percent_list = []
+                for _ in range(7):
+                    emo_percent = round(emo_confidence[_] * 100, 2)
+                    emo_percent_list.append(emo_percent)
+                emo_dict = zip(self.categories, emo_percent_list)
 
-                text = '{} ({:.2f}%) {} ({:.2f}%)'.format(self.gender, self.gender_confidence*100, self.age-5, self.age_confidence*100)
+                self.age_list.append(age)
+                self.age_conf_list.append(age_confidence)
+                self.gender_list.append(gender)
+                self.gender_conf_list.append(gender_confidence)
+                self.emo_list.append(emo_dict)
+
+
+                text = '{} ({:.2f}%) {} ({:.2f}%)'.format(gender, gender_confidence * 100, age,
+                                                          age_confidence * 100)
                 # text_emo = '{} ({:.2f}%)'.format(emo, emo_confidence*100)
                 cv2.putText(img, text, (d.left(), d.top() - 20), font, fontScale, fontColor, lineType)
                 # cv2.putText(img, text_emo, (d.left(), d.bottom()+25), font, fontScale, fontColor, lineType)
                 cv2.rectangle(img, (d.left(), d.top()), (d.right(), d.bottom()), fontColor, 2)
 
-                Detector.get_data(self)
+                # Detector.get_data(self)
 
                 # out.write(img)
 
-            objects = ct.update(rects)
+            objects = self.ct.update(self.rects)
+            counter = 0
 
             for (objectID, centroid) in objects.items():
                 # check to see if a trackable object exists for the current
                 # object ID
-                to = trackableObjects.get(objectID, None)
+                to = self.trackableObjects.get(objectID, None)
 
                 # if there is no existing trackable object, create one
                 if to is None:
-                    to = TrackableObject(objectID, centroid)
+                    # if self.skip_frame_flag:
+                    #     self.skip_frame_flag = False
+                    #     break
+                    to = TrackableObject(objectID, centroid,
+                                         self.emo_list[counter],self.age_list[counter],self.gender_list[counter])
+                    counter += 1
 
                 # otherwise, there is a trackable object so we can utilize it
                 # to determine direction
@@ -153,7 +199,7 @@ class Detector:
                     to.counted = True
 
                 # store the trackable object in our dictionary
-                trackableObjects[objectID] = to
+                self.trackableObjects[objectID] = to
 
                 # draw both the ID of the object and the centroid of the
                 # object on the output frame
@@ -161,18 +207,19 @@ class Detector:
                 cv2.putText(img, text, (centroid[0] - 10, centroid[1] - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                 cv2.circle(img, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
+            else: self.skip_frame_flag = True
+            # for()
 
+            cv2.namedWindow('rez', cv2.WINDOW_NORMAL)
             cv2.imshow('rez', img)
+
+            # cv2.waitKey(0)
             if cv2.waitKey(1) & 0xff == ord('q'):
                 break
-
-
 
 
     def __del__(self):
         self.cap.release()
         # out.release()
         cv2.destroyAllWindows()
-
-
 
