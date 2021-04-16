@@ -1,6 +1,6 @@
 import cv2
 import dlib
-from pprint import pprint
+import time
 from pyimagesearch.centroidtracker import CentroidTracker
 from pyimagesearch.trackableobject import TrackableObject
 
@@ -69,20 +69,6 @@ class Detector:
         self.categories = ['Angry', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
         self.cam_id = cam_id
 
-    # def get_data(self):
-    #     self.emo_confidence = list(self.emo_confidence)
-    #     emo_percent_list = []
-    #     for _ in range(7):
-    #         emo_percent = round(self.emo_confidence[_] * 100, 2)
-    #         emo_percent_list.append(emo_percent)
-    #     emo_dict = zip(self.categories, emo_percent_list)
-    #
-    #     print('===================================')
-    #     print('{} ({:.2f}%)'.format(self.gender, self.gender_confidence * 100))
-    #     print('{} ({:.2f}%)'.format(self.age - 5, self.age_confidence * 100))
-    #     pprint(list(emo_dict))
-    #     print('===================================')
-
     def tracker_add(self, face_segm, left, top, right, botom):
         tracker = dlib.correlation_tracker()
         rect = dlib.rectangle(left, top, right, botom)
@@ -96,7 +82,6 @@ class Detector:
         font, fontScale, fontColor, lineType = cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2
 
         self.cap = cv2.VideoCapture(self.cam_id)
-        # out = cv2.VideoWriter('output.mp4', -1, 20.0, (960,540))
 
         while True:
             success, img = self.cap.read()
@@ -144,12 +129,8 @@ class Detector:
 
                 text = '{} ({:.2f}%) {} ({:.2f}%)'.format(gender, gender_confidence * 100, age,
                                                           age_confidence * 100)
-                # text_emo = '{} ({:.2f}%)'.format(emo, emo_confidence*100)
                 cv2.putText(img, text, (d.left(), d.top() - 20), font, fontScale, fontColor, lineType)
-                # cv2.putText(img, text_emo, (d.left(), d.bottom()+25), font, fontScale, fontColor, lineType)
                 cv2.rectangle(img, (d.left(), d.top()), (d.right(), d.bottom()), fontColor, 2)
-
-                # out.write(img)
 
             objects = self.ct.update(self.rects)
             counter = 0
@@ -161,11 +142,10 @@ class Detector:
 
                 # if there is no existing trackable object, create one
                 if to is None:
-                    # if self.skip_frame_flag:
-                    #     self.skip_frame_flag = False
-                    #     break
                     to = TrackableObject(objectID, centroid,
                                          self.emo_list[counter], self.age_list[counter], self.gender_list[counter])
+                    to.set_time(time.time())
+                    to.send_data()
                     counter += 1
 
                 # otherwise, there is a trackable object so we can utilize it
@@ -175,14 +155,10 @@ class Detector:
                     to.counted = True
                     if self.emo_list:
                         to.change_emo(self.emo_list[counter])
+                        to.set_time(time.time())
+                        to.send_data()
 
                     counter += 1
-
-                print('=================')
-                print(to.get_id())
-                print(to.get_gender())
-                print(to.get_age())
-                pprint(to.get_emo())
 
                 # store the trackable object in our dictionary
                 self.trackableObjects[objectID] = to
@@ -203,5 +179,4 @@ class Detector:
 
     def __del__(self):
         self.cap.release()
-        # out.release()
         cv2.destroyAllWindows()
