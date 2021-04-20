@@ -1,19 +1,23 @@
 import cv2
 import dlib
 import time
+
+# import cetroid and trackable object's files
 from pyimagesearch.centroidtracker import CentroidTracker
 from pyimagesearch.trackableobject import TrackableObject
 
-
+# load any models and add gpu acceleration
 def load_models(model_path, caffemodel, prototxt):
     caffemodel_path = model_path + caffemodel
     prototxt_path = model_path + prototxt
     model = cv2.dnn.readNet(prototxt_path, caffemodel_path)
+
+    #gpu acceleration
     model.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
     model.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
     return model
 
-
+# Emotions prediction function
 def predict_emo(model, img, height, width):
     face_blob = cv2.dnn.blobFromImage(img, 1.0, (height, width), (0.485, 0.456, 0.406))
     model.setInput(face_blob)
@@ -22,7 +26,7 @@ def predict_emo(model, img, height, width):
     confidence = predictions[0]
     return class_num, confidence
 
-
+# Ages and genders prediction function
 def predict(model, img, height, width):
     face_blob = cv2.dnn.blobFromImage(img, 1.0, (height, width), (0.485, 0.456, 0.406))
     model.setInput(face_blob)
@@ -66,14 +70,15 @@ class Detector:
         emo_prototxt = '/deploy.prototxt'
         self.emo_model = load_models(emo_model_path, emo_caffemodel, emo_prototxt)
 
+        # init configuration variables
         self.categories = ['Angry', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
         self.cam_id = cam_id
 
+    # add dlib trackers
     def tracker_add(self, face_segm, left, top, right, botom):
         tracker = dlib.correlation_tracker()
         rect = dlib.rectangle(left, top, right, botom)
         self.rects.append((left, top, right, botom))
-
         tracker.start_track(face_segm, rect)
         self.trackers.append(tracker)
 
@@ -88,8 +93,8 @@ class Detector:
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             faces = detector(img_rgb, 1)
 
+            # Clearing buff lists
             self.rects.clear()
-
             self.age_list.clear()
             self.gender_list.clear()
             self.emo_list.clear()
@@ -123,37 +128,42 @@ class Detector:
                     emo_percent_list.append(emo_percent)
                 emo_dict = zip(self.categories, emo_percent_list)
 
+                # Update buff lists
                 self.age_list.append(age)
                 self.gender_list.append(gender)
                 self.emo_list.append(emo_dict)
 
+                # Add text to img for test Detectors work (can be deleted)
                 text = '{} ({:.2f}%) {} ({:.2f}%)'.format(gender, gender_confidence * 100, age,
                                                           age_confidence * 100)
                 cv2.putText(img, text, (d.left(), d.top() - 20), font, fontScale, fontColor, lineType)
                 cv2.rectangle(img, (d.left(), d.top()), (d.right(), d.bottom()), fontColor, 2)
 
+            # Update trackable objects
             objects = self.ct.update(self.rects)
+
+            # Counter to index objects list
             counter = 0
 
             for (objectID, centroid) in objects.items():
-                # check to see if a trackable object exists for the current
-                # object ID
+                # check to see if a trackable object exists for the current object ID
                 to = self.trackableObjects.get(objectID, None)
 
                 # if there is no existing trackable object, create one
                 if to is None:
                     to = TrackableObject(objectID, centroid,
                                          self.emo_list[counter], self.age_list[counter], self.gender_list[counter])
+                    # set time and sending data to MQTT server
                     to.set_time(time.time())
                     to.send_data()
                     counter += 1
 
                 # otherwise, there is a trackable object so we can utilize it
-                # to determine direction
                 else:
                     to.centroids.append(centroid)
                     to.counted = True
                     if self.emo_list:
+                        # change emotion data,set time and sending data to MQTT server
                         to.change_emo(self.emo_list[counter])
                         to.set_time(time.time())
                         to.send_data()
@@ -165,15 +175,17 @@ class Detector:
 
                 # draw both the ID of the object and the centroid of the
                 # object on the output frame
+                # (can be deleted)
                 text = "ID {}".format(objectID)
                 cv2.putText(img, text, (centroid[0] - 10, centroid[1] - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                 cv2.circle(img, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
 
+            # visualization
             cv2.namedWindow('rez', cv2.WINDOW_NORMAL)
             cv2.imshow('rez', img)
 
-            # cv2.waitKey(0)
+            # wait 'q' button
             if cv2.waitKey(1) & 0xff == ord('q'):
                 break
 

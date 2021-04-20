@@ -1,7 +1,7 @@
 import paho.mqtt.client as paho
 import json
 
-# MQTTTESTSERVER = 'test.mosquitto.org'
+# MQTT settings
 MQTTSERVER = 'mqtt.wifly.net'
 MQTTPORT = 1883
 TOPICNAME = 'neurobox/cc50e3dac77d'
@@ -34,10 +34,11 @@ class MQTT:
     def connection(self, msg):
         self.client.connect(MQTTSERVER, MQTTPORT, 60)
         self.client.loop_start()
-        # publish and logging and exit
+
+        # convert to json format
         msg_json = json.dumps(msg)
+
         # print publishing data if you need it
-        # pprint(msg_json)
         self.client.publish(TOPICNAME, msg_json)
         self.client.disconnect()
         self.client.loop_stop()
