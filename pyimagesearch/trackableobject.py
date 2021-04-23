@@ -1,4 +1,5 @@
 from MQTT import MQTT
+from pprint import pprint
 
 class TrackableObject:
 	counter = 0
@@ -54,10 +55,11 @@ class TrackableObject:
 			'emotion': self.emo,
 			'time': self.timestamp
 		}
-
+		# print(data_dict)
 		return data_dict
 
 	def send_data(self,):
-		client = MQTT()
+		# client = MQTT()
 		data_to_send = self.preparing_data()
-		client.connection(data_to_send)
+		# client.connection(data_to_send)
+		return data_to_send

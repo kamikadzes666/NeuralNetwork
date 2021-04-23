@@ -5,6 +5,7 @@ import time
 # import cetroid and trackable object's files
 from pyimagesearch.centroidtracker import CentroidTracker
 from pyimagesearch.trackableobject import TrackableObject
+from CamStreamer import CamStreamer
 
 # load any models and add gpu acceleration
 def load_models(model_path, caffemodel, prototxt):
@@ -40,9 +41,10 @@ class Detector:
     input_height = 224
     input_width = 224
 
-    def __init__(self, cam_id=0):
+    def __init__(self, path2cam, has_event, event_buff, parameters):
         # init trackers data
-        self.ct = CentroidTracker(maxDisappeared=5, maxDistance=50)
+        self.ct = CentroidTracker(maxDisappeared=parameters['maxDisappeared'],
+                                  maxDistance=parameters['maxDistance'])
         self.trackers = []
         self.trackableObjects = {}
         self.persons = []
@@ -51,6 +53,8 @@ class Detector:
         self.age_list = []
         self.gender_list = []
         self.emo_list = []
+
+        # logging.info('INIT')
 
         # load gender model
         gender_model_path = 'model_data/gender'
@@ -72,7 +76,19 @@ class Detector:
 
         # init configuration variables
         self.categories = ['Angry', 'Disgust', 'Fear', 'Happy', 'Neutral', 'Sad', 'Surprise']
-        self.cam_id = cam_id
+        self.cam_id = path2cam
+        self.has_event = has_event
+        self.event_buff = event_buff
+
+
+
+        print('detector start')
+        # event_buff.put({'process': 'detector', 'status': 'error'})
+        # print(type(self.cam_id))
+        self.cam_process()
+
+
+
 
     # add dlib trackers
     def tracker_add(self, face_segm, left, top, right, botom):
@@ -82,14 +98,23 @@ class Detector:
         tracker.start_track(face_segm, rect)
         self.trackers.append(tracker)
 
+
+    def get_data(self, data):
+        # print("DETECTOR:", data)
+        self.event_buff.put(data)
+        self.has_event.release()
+
     def cam_process(self):
         detector = dlib.get_frontal_face_detector()
         font, fontScale, fontColor, lineType = cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2
 
-        self.cap = cv2.VideoCapture(self.cam_id)
-
+        self.stream = CamStreamer(0)
+        # self.cap = cv2.VideoCapture(self.cam_id)
+        # cap = CamStreamer(self.cam_id)
         while True:
-            success, img = self.cap.read()
+            # img = cap.read()
+            # success, img = self.cap.read()
+            img = self.stream.read()
             img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             faces = detector(img_rgb, 1)
 
@@ -98,7 +123,7 @@ class Detector:
             self.age_list.clear()
             self.gender_list.clear()
             self.emo_list.clear()
-
+            face_counter = 0
             for d in faces:
                 left = int(0.6 * d.left())  # + 40% margin
                 top = int(0.6 * d.top())  # + 40% margin
@@ -132,7 +157,7 @@ class Detector:
                 self.age_list.append(age)
                 self.gender_list.append(gender)
                 self.emo_list.append(emo_dict)
-
+                face_counter += 1
                 # Add text to img for test Detectors work (can be deleted)
                 text = '{} ({:.2f}%) {} ({:.2f}%)'.format(gender, gender_confidence * 100, age,
                                                           age_confidence * 100)
@@ -141,10 +166,9 @@ class Detector:
 
             # Update trackable objects
             objects = self.ct.update(self.rects)
-
             # Counter to index objects list
             counter = 0
-
+            prev_face_id = []
             for (objectID, centroid) in objects.items():
                 # check to see if a trackable object exists for the current object ID
                 to = self.trackableObjects.get(objectID, None)
@@ -155,18 +179,20 @@ class Detector:
                                          self.emo_list[counter], self.age_list[counter], self.gender_list[counter])
                     # set time and sending data to MQTT server
                     to.set_time(time.time())
-                    to.send_data()
+                    self.get_data(to.send_data())
                     counter += 1
 
                 # otherwise, there is a trackable object so we can utilize it
                 else:
                     to.centroids.append(centroid)
                     to.counted = True
-                    if self.emo_list:
+                    if self.emo_list and counter < face_counter:
                         # change emotion data,set time and sending data to MQTT server
-                        to.change_emo(self.emo_list[counter])
+
+                        current_emo = self.emo_list[counter]
+                        to.change_emo(current_emo)
                         to.set_time(time.time())
-                        to.send_data()
+                        self.get_data(to.send_data())
 
                     counter += 1
 
@@ -186,9 +212,15 @@ class Detector:
             cv2.imshow('rez', img)
 
             # wait 'q' button
+            # cv2.waitKey(0)
             if cv2.waitKey(1) & 0xff == ord('q'):
+                self.event_buff.put({'process': 'detector', 'status': 'close'})
+                self.has_event.release()
+                self.stream.stop()
                 break
 
     def __del__(self):
-        self.cap.release()
-        cv2.destroyAllWindows()
+        # self.cap.release()
+        self.stream.stop()
+        # cv2.destroyAllWindows()
+        # self.has_event.release()
